@@ -80,17 +80,5 @@ describe('catalog-wfs', () => {
       const fileExists = await fs.pathExists(resource.filePath)
       assert.ok(fileExists, 'Downloaded file should exist')
     })
-
-    it('should download FeatureType as CSV', async () => {
-      const resource = await catalogPlugin.getResource({
-        ...getResourceParams,
-        resourceId: 'sdis29:accident_circulation_sdis29',
-        importConfig: { format: 'csv' }
-      })
-
-      assert.ok(resource, 'Resource should exist')
-      assert.ok(resource.filePath)
-      assert.ok(resource.filePath.endsWith('.csv'))
-    })
   })
 })

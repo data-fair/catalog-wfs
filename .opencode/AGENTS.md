@@ -34,7 +34,7 @@ node --test test-it/index.ts
 
 ### Import example
 ```typescript
-import type { WFSConfig, ImportConfig } from '#types'
+import type { WFSConfig } from '#types'
 import { XMLParser } from 'fast-xml-parser'
 import axios from '@data-fair/lib-node/axios.js'
 ```
@@ -47,8 +47,8 @@ import axios from '@data-fair/lib-node/axios.js'
 - **WFS 1.0.0**: paramètre `typeName` (sans 's')
 
 ### outputFormat
-- WFS 2.0.0 / 1.1.0: `application/json` (GeoJSON) ou `csv`
-- WFS 1.0.0: `GML2` (pas de JSON natif, conversion nécessaire)
+- WFS 2.0.0 / 1.1.0: `application/json` (GeoJSON) par défaut
+- WFS 1.0.0: `GML2` (converti vers GeoJSON)
 
 ### FeatureType names
 - Peuvent contenir des namespaces: `sdis29:accident_circulation_sdis29`
@@ -69,10 +69,10 @@ catalog-wfs/
 │   ├── prepare.ts           # Validation config + DNS check
 │   ├── list.ts              # GetCapabilities → liste des FeatureTypes
 │   ├── imports.ts           # GetFeature → téléchargement données
+│   ├── utils/gml.ts         # Conversion GML vers GeoJSON
 │   └── i18n.ts              # Traductions
 ├── types/
-│   ├── catalogConfig/       # Schema et types pour la config WFS (url, version)
-│   └── importConfig/        # Schema et types pour l'import (format: json|csv)
+│   └── catalogConfig/      # Schema et types pour la config WFS (url, version)
 └── test-it/
     └── index.ts             # Tests avec GeoBretagne WFS
 ```

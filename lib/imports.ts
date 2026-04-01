@@ -4,7 +4,7 @@ import path from 'path'
 import { pipeline } from 'node:stream/promises'
 import axios from '@data-fair/lib-node/axios.js'
 import type { CatalogPlugin, GetResourceContext, Resource } from '@data-fair/types-catalogs'
-import type { WFSConfig, ImportConfig } from '#types'
+import type { WFSConfig } from '#types'
 import { convertGmlToGeoJson } from './utils/gml.ts'
 
 const parser = new XMLParser({
@@ -14,10 +14,9 @@ const parser = new XMLParser({
   parseTagValue: true
 })
 
-export const getResource = async ({ resourceId, tmpDir, log, catalogConfig, importConfig }: GetResourceContext<WFSConfig>): ReturnType<CatalogPlugin['getResource']> => {
+export const getResource = async ({ resourceId, tmpDir, log, catalogConfig }: GetResourceContext<WFSConfig>): ReturnType<CatalogPlugin['getResource']> => {
   const version = catalogConfig.version || '2.0.0'
   const featureTypeName = resourceId
-  const outputFormat = (importConfig as ImportConfig)?.format || 'geojson'
 
   await log.step('Récupération des métadonnées du FeatureType')
 
@@ -66,20 +65,12 @@ export const getResource = async ({ resourceId, tmpDir, log, catalogConfig, impo
   }
 
   if (version === '2.0.0' || version === '1.1.0') {
-    if (outputFormat === 'csv') {
-      getFeatureUrl.searchParams.set('outputFormat', 'csv')
-    } else {
-      getFeatureUrl.searchParams.set('outputFormat', 'application/json')
-    }
+    getFeatureUrl.searchParams.set('outputFormat', 'application/json')
   } else {
-    if (outputFormat === 'csv') {
-      getFeatureUrl.searchParams.set('outputFormat', 'csv')
-    } else {
-      getFeatureUrl.searchParams.set('outputFormat', 'GML2')
-    }
+    getFeatureUrl.searchParams.set('outputFormat', 'GML2')
   }
 
-  const fileExtension = outputFormat === 'csv' ? 'csv' : 'geojson'
+  const fileExtension = 'geojson'
   const safeFileName = featureTypeName
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
