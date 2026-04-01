@@ -1,84 +1,123 @@
-import type { CatalogPlugin, GetResourceContext } from '@data-fair/types-catalogs'
-import type { MockConfig } from '#types'
+import { XMLParser } from 'fast-xml-parser'
+import fs from 'fs'
+import path from 'path'
+import { pipeline } from 'node:stream/promises'
+import axios from '@data-fair/lib-node/axios.js'
+import type { CatalogPlugin, GetResourceContext, Resource } from '@data-fair/types-catalogs'
+import type { WFSConfig, ImportConfig } from '#types'
+import { convertGmlToGeoJson } from './utils/gml.ts'
 
-export const getResource = async ({ catalogConfig, secrets, resourceId, importConfig, tmpDir, log }: GetResourceContext<MockConfig>): ReturnType<CatalogPlugin['getResource']> => {
-  await log.info(`Downloading resource ${resourceId}`, { catalogConfig, secrets, importConfig })
+const parser = new XMLParser({
+  ignoreAttributes: false,
+  attributeNamePrefix: '',
+  removeNSPrefix: true,
+  parseTagValue: true
+})
 
-  // Simulate a delay for the mock plugin
-  await log.task('delay', 'Simulate delay for mock plugin (Response Delay * 10) ', catalogConfig.delay * 10)
-  for (let i = 0; i < catalogConfig.delay * 10; i += catalogConfig.delay) {
-    await new Promise(resolve => setTimeout(resolve, catalogConfig.delay))
-    await log.progress('delay', i + catalogConfig.delay)
+export const getResource = async ({ resourceId, tmpDir, log, catalogConfig, importConfig }: GetResourceContext<WFSConfig>): ReturnType<CatalogPlugin['getResource']> => {
+  const version = catalogConfig.version || '2.0.0'
+  const featureTypeName = resourceId
+  const outputFormat = (importConfig as ImportConfig)?.format || 'geojson'
+
+  await log.step('Récupération des métadonnées du FeatureType')
+
+  const capabilitiesUrl = new URL(catalogConfig.url)
+  capabilitiesUrl.searchParams.set('service', 'WFS')
+  capabilitiesUrl.searchParams.set('version', version)
+  capabilitiesUrl.searchParams.set('request', 'GetCapabilities')
+
+  let featureTitle = featureTypeName
+  let featureAbstract = ''
+  let origin: string | undefined
+
+  try {
+    const capsResponse = await axios.get(capabilitiesUrl.toString())
+    const capsParsed = parser.parse(capsResponse.data)
+
+    const ftList = capsParsed?.WFS_Capabilities?.FeatureTypeList?.FeatureType
+    const ftArray = Array.isArray(ftList) ? ftList : [ftList]
+    const ft = ftArray.find((f: any) => f.Name === featureTypeName || f.name === featureTypeName)
+
+    if (ft) {
+      featureTitle = ft.Title || ft.title || featureTypeName
+      featureAbstract = ft.Abstract || ft.abstract || ''
+
+      const metadataUrls = ft.MetadataURL || ft['ows:MetadataURL']
+      if (metadataUrls) {
+        const urls = Array.isArray(metadataUrls) ? metadataUrls : [metadataUrls]
+        origin = urls[0]?.['@_xlink:href'] || urls[0]?.['xlink:href']
+      }
+    }
+  } catch (error) {
+    await log.warning(`Impossible de récupérer les métadonnées pour ${featureTypeName}`)
   }
 
-  // Validate the importConfig
-  await log.step('Validate import configuraiton')
-  const { returnValid } = await import('#type/importConfig/index.ts')
-  returnValid(importConfig)
-  await log.info('Import configuration is valid', { importConfig })
+  await log.step('Récupération des données (GetFeature)')
 
-  // First check if the resource exists
-  const resources = (await import('./resources/resources-mock.ts')).default
-  const resource = resources.resources[resourceId]
-  if (!resource) { throw new Error(`Resource with ID ${resourceId} not found`) }
+  const getFeatureUrl = new URL(catalogConfig.url)
+  getFeatureUrl.searchParams.set('service', 'WFS')
+  getFeatureUrl.searchParams.set('version', version)
+  getFeatureUrl.searchParams.set('request', 'GetFeature')
 
-  // Import necessary modules dynamically
-  const fs = await import('node:fs/promises')
-  const path = await import('node:path')
-
-  await log.step('Download resource file')
-  await log.warning('This task can take a while, please be patient')
-  // Simulate downloading by copying a dummy file with limited rows
-  const sourceFile = path.join(import.meta.dirname, 'resources', 'dataset-mock.csv')
-  const destFile = path.join(tmpDir, 'dataset-mock.csv')
-  const data = await fs.readFile(sourceFile, 'utf8')
-
-  // Limit the number of rows to importConfig.nbRows (Header excluded)
-  const lines = data.split('\n').slice(0, importConfig.nbRows + 1).join('\n')
-  await fs.writeFile(destFile, lines, 'utf8')
-  await log.info(`${importConfig.nbRows} rows downloaded`)
-
-  await log.step('End of resource download')
-  await log.info(`Resource ${resourceId} downloaded successfully`)
-  await log.info(`Resource slug is ${resource.slug}`)
-  await log.warning('This is a mock resource, the file is not real and does not contain real data.')
-  await log.error('Example of an error log for demonstration purposes.')
-
-  const attachments = []
-  if (importConfig.importAttachments) {
-    // Copy thumbnail to the tmpDir if it exists
-    const thumbnailSource = path.join(import.meta.dirname, 'resources', 'thumbnail.svg')
-    const thumbnailDest = path.join(tmpDir, 'thumbnail.svg')
-    await fs.copyFile(thumbnailSource, thumbnailDest)
-    await log.info(`Thumbnail downloaded to ${thumbnailDest}`)
-    attachments.push(
-      {
-        title: 'Mock Attachment',
-        description: 'This is a mock attachment',
-        url: 'https://example.com/mock-attachment'
-      })
-    attachments.push({
-      title: 'Another Mock Attachment',
-      description: 'This is another mock attachment',
-      filePath: thumbnailDest
-    })
+  if (version === '2.0.0') {
+    getFeatureUrl.searchParams.set('typeNames', featureTypeName)
   } else {
-    await log.warning('Attachments import is disabled, no attachments will be imported.')
+    getFeatureUrl.searchParams.set('typeName', featureTypeName)
   }
+
+  if (version === '2.0.0' || version === '1.1.0') {
+    if (outputFormat === 'csv') {
+      getFeatureUrl.searchParams.set('outputFormat', 'csv')
+    } else {
+      getFeatureUrl.searchParams.set('outputFormat', 'application/json')
+    }
+  } else {
+    if (outputFormat === 'csv') {
+      getFeatureUrl.searchParams.set('outputFormat', 'csv')
+    } else {
+      getFeatureUrl.searchParams.set('outputFormat', 'GML2')
+    }
+  }
+
+  const fileExtension = outputFormat === 'csv' ? 'csv' : 'geojson'
+  const safeFileName = featureTypeName
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '')
+    .toLowerCase()
+
+  const destPath = path.join(tmpDir, `${safeFileName}.${fileExtension}`)
+
+  try {
+    if (version === '2.0.0' || version === '1.1.0') {
+      const response = await axios.get(getFeatureUrl.toString(), {
+        responseType: 'stream'
+      })
+
+      const writer = fs.createWriteStream(destPath)
+      await pipeline(response.data, writer)
+    } else {
+      const response = await axios.get(getFeatureUrl.toString(), {
+        responseType: 'text'
+      })
+      const convertedData = convertGmlToGeoJson(response.data)
+      const fsPromises = await import('node:fs/promises')
+      await fsPromises.writeFile(destPath, JSON.stringify(convertedData), 'utf8')
+    }
+  } catch (error: any) {
+    throw new Error(`Erreur lors de la récupération des données: ${error.message}`)
+  }
+
+  await log.info(`Ressource ${featureTypeName} récupérée avec succès`)
 
   return {
     id: resourceId,
-    ...resource,
-    description: resource.description + '\n\n' + secrets.secretField, // Include the secret in the description for demonstration
-    filePath: destFile,
-    frequency: 'monthly',
-    image: 'https://koumoul.com/data-fair-portals/api/v1/portals/8cbc8974-2fd2-46aa-b328-804600dc840f/assets/logo',
-    license: {
-      href: 'https://www.etalab.gouv.fr/wp-content/uploads/2014/05/Licence_Ouverte.pdf',
-      title: 'Licence Ouverte / Open Licence'
-    },
-    keywords: ['mock', 'example', 'data'],
-    origin: 'https://example.com/mock',
-    attachments
-  }
+    title: featureTitle,
+    description: featureAbstract,
+    filePath: destPath,
+    format: fileExtension,
+    ...(origin && { origin })
+  } as Resource
 }

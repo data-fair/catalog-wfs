@@ -1,13 +1,8 @@
 import type CatalogPlugin from '@data-fair/types-catalogs'
-import { importConfigSchema, configSchema, assertConfigValid, type MockConfig } from '#types'
-import { type MockCapabilities, capabilities } from './lib/capabilities.ts'
-import i18n from './lib/i18n.ts'
+import { configSchema, assertConfigValid, type WFSConfig } from '#types'
+import { type WFSCapabilities, capabilities } from './lib/capabilities.ts'
 
-// Since the plugin is very frequently imported, each function is imported on demand,
-// instead of loading the entire plugin.
-// This file should not contain any code, but only constants and dynamic imports of functions.
-
-const plugin: CatalogPlugin<MockConfig, MockCapabilities> = {
+const plugin: CatalogPlugin<WFSConfig, WFSCapabilities> = {
   async prepare (context) {
     const prepare = (await import('./lib/prepare.ts')).default
     return prepare(context)
@@ -23,24 +18,13 @@ const plugin: CatalogPlugin<MockConfig, MockCapabilities> = {
     return getResource(context)
   },
 
-  async publishDataset (context) {
-    const { publishDataset } = await import('./lib/publications.ts')
-    return publishDataset(context)
-  },
-
-  async deletePublication (context) {
-    const { deletePublication } = await import('./lib/publications.ts')
-    return deletePublication(context)
-  },
-
   metadata: {
-    title: 'Mock',
-    thumbnailPath: './lib/resources/thumbnail.svg',
-    i18n,
+    title: 'WFS',
+    thumbnailPath: './lib/resources/wfs-logo.svg',
+    description: 'Importez des données géographiques depuis un service WFS (Web Feature Service).',
     capabilities
   },
 
-  importConfigSchema,
   configSchema,
   assertConfigValid
 }

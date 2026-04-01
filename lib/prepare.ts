@@ -1,66 +1,51 @@
+import dns from 'dns/promises'
+import { URL } from 'url'
+import type { WFSConfig } from '#types'
+import type { WFSCapabilities } from './capabilities.ts'
 import type { PrepareContext } from '@data-fair/types-catalogs'
-import type { MockCapabilities } from './capabilities.ts'
-import type { MockConfig } from '#types'
 
-export default async ({ catalogConfig, capabilities, secrets }: PrepareContext<MockConfig, MockCapabilities>) => {
-  // Manage secrets
-  const secretField = catalogConfig.secretField
-  // If the config contains a secretField, and it is not already hidden
-  if (secretField && secretField !== '********') {
-    // Hide the secret in the catalogConfig, and copy it to secrets
-    secrets.secretField = secretField
-    catalogConfig.secretField = '********'
-
-  // If the secretField is in the secrets, and empty in catalogConfig,
-  // then it means the user has cleared the secret in the config
-  } else if (secrets?.secretField && secretField === '') {
-    delete secrets.secretField
-  } else {
-    // The secret is already set, do nothing
+export default async ({ catalogConfig, capabilities }: PrepareContext<WFSConfig, WFSCapabilities>) => {
+  if (!catalogConfig?.url) {
+    throw new Error("L'URL du service WFS est obligatoire.")
   }
 
-  // Manage capabilities
-  if (catalogConfig.searchCapability && !capabilities.includes('search')) capabilities.push('search')
-  else capabilities = capabilities.filter(c => c !== 'search')
-
-  if (catalogConfig.paginationCapability && !capabilities.includes('pagination')) capabilities.push('pagination')
-  else capabilities = capabilities.filter(c => c !== 'pagination')
-
-  // Manage publication capabilities based on publicationMode
-  const publicationCapabilities: typeof capabilities[number][] = [
-    'createFolderInRoot',
-    'createFolder',
-    'createResource',
-    'replaceFolder',
-    'replaceResource'
-  ]
-
-  // Remove all publication capabilities first (including requiresPublicationSite)
-  capabilities = capabilities.filter(c => !publicationCapabilities.includes(c) && c !== 'requiresPublicationSite' && c !== 'publication' as any)
-
-  // Add capabilities based on publicationMode
-  if (catalogConfig.publicationMode === 'simple') {
-    capabilities.push('createFolderInRoot')
-  } else if (catalogConfig.publicationMode === 'full') {
-    capabilities.push(...publicationCapabilities)
-  } else if (catalogConfig.publicationMode === 'withSite') {
-    capabilities.push(...publicationCapabilities)
-    capabilities.push('requiresPublicationSite')
+  const urlString = catalogConfig.url.trim()
+  let url: URL
+  try {
+    url = new URL(urlString)
+  } catch (err) {
+    throw new Error("L'URL fournie n'est pas valide.")
   }
 
-  let thumbnailUrl: string
-  if (catalogConfig.thumbnailUrl) {
-    if (!capabilities.includes('thumbnailUrl')) capabilities.push('thumbnailUrl')
-    thumbnailUrl = catalogConfig.thumbnailUrl
-  } else {
-    capabilities = capabilities.filter(c => c !== 'thumbnailUrl')
-    thumbnailUrl = ''
+  if (!['http:', 'https:'].includes(url.protocol)) {
+    throw new Error('Seuls les protocoles HTTP et HTTPS sont autorisés.')
+  }
+
+  try {
+    const { address } = await dns.lookup(url.hostname, { family: 4 })
+    const isPrivateIp =
+      /^127\./.test(address) ||
+      /^10\./.test(address) ||
+      /^192\.168\./.test(address) ||
+      /^169\.254\./.test(address) ||
+      /^0\./.test(address) ||
+      /^172\.(1[6-9]|2\d|3[0-1])\./.test(address)
+
+    if (isPrivateIp) {
+      throw new Error(`L'URL est interdite car elle pointe vers un réseau interne (${address}).`)
+    }
+  } catch (err: any) {
+    if (err.message?.includes('interdite')) throw err
+    throw new Error(`Impossible de résoudre l'adresse : ${url.hostname}`)
+  }
+
+  catalogConfig.url = url.toString()
+
+  if (!catalogConfig.version) {
+    catalogConfig.version = '2.0.0'
   }
 
   return {
-    catalogConfig,
-    capabilities,
-    secrets,
-    thumbnailUrl
+    catalogConfig
   }
 }
