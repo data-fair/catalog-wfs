@@ -28,6 +28,7 @@ export const getResource = async ({ resourceId, tmpDir, log, catalogConfig }: Ge
   let featureTitle = featureTypeName
   let featureAbstract = ''
   let origin: string | undefined
+  let keywords: string[] | undefined
 
   try {
     const capsResponse = await axios.get(capabilitiesUrl.toString())
@@ -44,7 +45,16 @@ export const getResource = async ({ resourceId, tmpDir, log, catalogConfig }: Ge
       const metadataUrls = ft.MetadataURL || ft['ows:MetadataURL']
       if (metadataUrls) {
         const urls = Array.isArray(metadataUrls) ? metadataUrls : [metadataUrls]
-        origin = urls[0]?.['@_xlink:href'] || urls[0]?.['xlink:href']
+        origin = urls[0]?.href
+      }
+
+      const keywordsNode = ft.Keywords || ft['ows:Keywords']
+      if (keywordsNode) {
+        const kwArray = Array.isArray(keywordsNode.Keyword)
+          ? keywordsNode.Keyword
+          : keywordsNode.Keyword ? [keywordsNode.Keyword] : []
+        const filtered = kwArray.filter(Boolean) as string[]
+        keywords = filtered.length > 0 ? filtered : undefined
       }
     }
   } catch (error) {
@@ -109,6 +119,7 @@ export const getResource = async ({ resourceId, tmpDir, log, catalogConfig }: Ge
     description: featureAbstract,
     filePath: destPath,
     format: fileExtension,
-    ...(origin && { origin })
+    ...(origin && { origin }),
+    ...(keywords && keywords.length > 0 && { keywords })
   } as Resource
 }

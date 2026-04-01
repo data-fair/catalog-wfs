@@ -20,7 +20,6 @@ const plugin: CatalogPlugin<WFSConfig, WFSCapabilities> = {
 
   metadata: {
     title: 'WFS',
-    thumbnailPath: './lib/resources/wfs-logo.svg',
     description: 'Importez des données géographiques depuis un service WFS (Web Feature Service).',
     capabilities
   },

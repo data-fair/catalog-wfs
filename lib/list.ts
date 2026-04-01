@@ -17,6 +17,7 @@ interface WFSFeatureType {
   name: string
   title?: string
   abstract?: string
+  keywords?: string[]
 }
 
 const fetchFeatureTypes = memoize(async (capabilitiesUrl: string): Promise<WFSFeatureType[]> => {
@@ -30,11 +31,23 @@ const fetchFeatureTypes = memoize(async (capabilitiesUrl: string): Promise<WFSFe
   }
 
   const ftArray = Array.isArray(ftList) ? ftList : [ftList]
-  return ftArray.map((ft: any) => ({
-    name: ft.Name || ft.name,
-    title: ft.Title || ft.title || ft.Name || ft.name,
-    abstract: ft.Abstract || ft.abstract
-  }))
+  return ftArray.map((ft: any) => {
+    const keywordsNode = ft.Keywords || ft['ows:Keywords']
+    let keywords: string[] | undefined
+    if (keywordsNode) {
+      const kwArray = Array.isArray(keywordsNode.Keyword)
+        ? keywordsNode.Keyword
+        : keywordsNode.Keyword ? [keywordsNode.Keyword] : []
+      const filtered = kwArray.filter(Boolean) as string[]
+      keywords = filtered.length > 0 ? filtered : undefined
+    }
+    return {
+      name: ft.Name || ft.name,
+      title: ft.Title || ft.title || ft.Name || ft.name,
+      abstract: ft.Abstract || ft.abstract,
+      keywords
+    }
+  })
 }, {
   promise: true,
   maxAge: 10 * 60 * 1000,
@@ -62,6 +75,7 @@ export const list = async ({ catalogConfig, params }: ListContext<WFSConfig, WFS
     id: ft.name,
     title: ft.title,
     description: ft.abstract,
+    keywords: ft.keywords,
     format: 'geojson',
     type: 'resource'
   })) as ResourceList
