@@ -60,7 +60,7 @@ export const getResource = async ({ resourceId, tmpDir, log, catalogConfig }: Ge
   } catch (error) {
     await log.warning(`Impossible de récupérer les métadonnées pour ${featureTypeName}`)
   }
-
+  await log.warning("Certains serveurs WFS limitent le nombre d'objets retournés par requête (souvent à 1000 ou 5000).")
   await log.step('Récupération des données (GetFeature)')
 
   const getFeatureUrl = new URL(catalogConfig.url)
