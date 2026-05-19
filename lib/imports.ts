@@ -88,10 +88,22 @@ export const getResource = async ({ resourceId, tmpDir, log, catalogConfig }: Ge
   let featureAbstract = ''
   let origin: string | undefined
   let keywords: string[] | undefined
+  let jsonOutputFormat: string | undefined
 
   try {
     const capsResponse = await axios.get(capabilitiesUrl.toString())
     const capsParsed = parser.parse(capsResponse.data)
+
+    const operations = capsParsed?.WFS_Capabilities?.OperationsMetadata?.Operation
+    const getFeatureOp = Array.isArray(operations) ? operations.find((op: any) => op.name === 'GetFeature') : null
+    const outputFormatParam = Array.isArray(getFeatureOp?.Parameter)
+      ? getFeatureOp.Parameter.find((p: any) => p.name === 'outputFormat')
+      : getFeatureOp?.Parameter
+    const formats: string[] = Array.isArray(outputFormatParam?.AllowedValues?.Value)
+      ? outputFormatParam.AllowedValues.Value
+      : outputFormatParam?.AllowedValues?.Value ? [outputFormatParam.AllowedValues.Value] : []
+
+    jsonOutputFormat = formats.find(f => f === 'application/json' || f === 'json')
 
     const ftList = capsParsed?.WFS_Capabilities?.FeatureTypeList?.FeatureType
     const ftArray = Array.isArray(ftList) ? ftList : [ftList]
@@ -164,14 +176,12 @@ export const getResource = async ({ resourceId, tmpDir, log, catalogConfig }: Ge
   }
 
   if (nbTotalResults !== 'unknown') {
-    await log.info(`${nbTotalResults} résultats attendus`)
+    await log.info(`Estimation basse : ${nbTotalResults} résultats attendus (certains serveurs peuvent limiter le nombre total alors qu'il y a une pagination)`)
   } else {
     await log.warning('On ne peut pas estimer le nombre de résultats attendus. On estime que toutes les données seront envoyées en un seul stream.')
   }
 
   await log.step('Récupération des données (GetFeature)')
-
-  // nbTotalResults = 10000
 
   // Build the GetFeature URL
   const getFeatureUrl = new URL(catalogConfig.url)
@@ -185,8 +195,8 @@ export const getResource = async ({ resourceId, tmpDir, log, catalogConfig }: Ge
     getFeatureUrl.searchParams.set('typeName', featureTypeName)
   }
 
-  if (version === '2.0.0' || version === '1.1.0') {
-    getFeatureUrl.searchParams.set('outputFormat', 'application/json')
+  if (jsonOutputFormat) {
+    getFeatureUrl.searchParams.set('outputFormat', jsonOutputFormat)
   } else {
     getFeatureUrl.searchParams.set('outputFormat', 'GML2')
   }
@@ -203,7 +213,7 @@ export const getResource = async ({ resourceId, tmpDir, log, catalogConfig }: Ge
   const destPath = path.join(tmpDir, `${safeFileName}.${fileExtension}`)
 
   try {
-    if (version === '2.0.0' || version === '1.1.0') {
+    if (jsonOutputFormat) {
       // Fetch first page as JSON to extract envelope metadata (crs, etc.)
       getFeatureUrl.searchParams.set('startIndex', '0')
       getFeatureUrl.searchParams.set('count', '1')
@@ -227,13 +237,12 @@ export const getResource = async ({ resourceId, tmpDir, log, catalogConfig }: Ge
         nbResults++
       }
 
-      // Fetch remaining pages as streams
-      let hasMore = nbTotalResults === 'unknown' || nbResults < nbTotalResults
-
       // We define a boolean hasMore to avoid an ESLint error
-      while (hasMore) {
+      while (true) {
         getFeatureUrl.searchParams.set('startIndex', nbResults.toString())
         getFeatureUrl.searchParams.set('count', DEFAULT_PAGE_SIZE.toString())
+        // WARNING : The count is not taken into account when stopping the loop because some servers
+        // may have their own limits that do not consider the count provided.
 
         const response = await fetchPage(getFeatureUrl.toString(), log, 'stream')
         const pageResults = await streamPage(response, (feature) => {
@@ -249,18 +258,15 @@ export const getResource = async ({ resourceId, tmpDir, log, catalogConfig }: Ge
         // We add this condition in case we don't know the number of expected results or if there's a potential error.
         if (pageResults === 0) break
         nbResults += pageResults
-
-        // If we have obtained the expected number of results, we can stop.
-        if (nbTotalResults !== 'unknown' && nbResults >= nbTotalResults) hasMore = false
-
-        // If the page is incomplete, the data limit has likely been reached.
-        if (pageResults < DEFAULT_PAGE_SIZE) hasMore = false
       }
 
       writer.write(']}')
       await new Promise<void>((resolve, reject) => {
         writer.end((err: any) => err ? reject(err) : resolve())
       })
+      if (nbResults === 0) {
+        throw new Error('Le fichier source ne contient aucune donnée.')
+      }
     } else {
       // Fetch first page to extract envelope metadata (crs, etc.)
       getFeatureUrl.searchParams.set('startIndex', '0')
@@ -288,12 +294,12 @@ export const getResource = async ({ resourceId, tmpDir, log, catalogConfig }: Ge
         nbResults++
       }
 
-      let hasMore = nbTotalResults === 'unknown' || nbResults < nbTotalResults
-
       // We define a boolean hasMore to avoid an ESLint error
-      while (hasMore) {
+      while (true) {
         getFeatureUrl.searchParams.set('startIndex', nbResults.toString())
         getFeatureUrl.searchParams.set('count', DEFAULT_PAGE_SIZE.toString())
+        // WARNING : The count is not taken into account when stopping the loop because some servers
+        // may have their own limits that do not consider the count provided.
 
         const response = await fetchPage(getFeatureUrl.toString(), log, 'text')
         const features = convertGmlToGeoJson(response!.data).features ?? []
@@ -309,17 +315,18 @@ export const getResource = async ({ resourceId, tmpDir, log, catalogConfig }: Ge
 
         nbResults += features.length
 
-        // If we have obtained the expected number of results, we can stop.
-        if (nbTotalResults !== 'unknown' && nbResults >= nbTotalResults) hasMore = false
-
-        // If the page is empty or incomplete, the data limit has likely been reached.
-        if (features.length < DEFAULT_PAGE_SIZE) hasMore = false
+        // If we get a blank page, we've reached the end of data processing and we stop here.
+        // We add this condition in case we don't know the number of expected results or if there's a potential error.
+        if (features.length === 0) break
       }
 
       writer.write(']}')
       await new Promise<void>((resolve, reject) => {
         writer.end((err: any) => err ? reject(err) : resolve())
       })
+      if (nbResults === 0) {
+        throw new Error('Le fichier source ne contient aucune donnée.')
+      }
     }
   } catch (error: any) {
     throw new Error(`Erreur lors de la récupération des données: ${error.message}`)

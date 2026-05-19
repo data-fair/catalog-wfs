@@ -1,6 +1,6 @@
 import { XMLParser } from 'fast-xml-parser'
 import axios from '@data-fair/lib-node/axios.js'
-import type { CatalogPlugin, ListContext } from '@data-fair/types-catalogs'
+import type { CatalogPlugin, Folder, ListContext } from '@data-fair/types-catalogs'
 import type { WFSConfig } from '#types'
 import type { WFSCapabilities } from './capabilities.ts'
 import memoize from 'memoizee'
@@ -71,14 +71,54 @@ export const list = async ({ catalogConfig, params }: ListContext<WFSConfig, WFS
     return { count: 0, results: [], path: [] }
   }
 
-  const listResults = featureTypes.map((ft) => ({
-    id: ft.name,
-    title: ft.title,
-    description: ft.abstract,
-    keywords: ft.keywords,
-    format: 'geojson',
-    type: 'resource'
-  })) as ResourceList
+  const folders : Folder[] = []
+  const folderIds = new Set<string>()
+  const resources : ResourceList = []
+  let parentId: string | undefined = params.currentFolderId ? params.currentFolderId + ':' : ''
+
+  for (const feature of featureTypes) {
+    if (feature.name.startsWith(parentId)) {
+      const subName = feature.name.substring(parentId.length)
+      const structure = subName.split(':')
+
+      if (structure.length === 1) {
+        const resourceList: ResourceList[number] = {
+          id: feature.name,
+          title: feature.title ?? 'unnamed',
+          description: feature.abstract,
+          format: 'geojson',
+          type: 'resource'
+        }
+        resources.push(resourceList)
+      } else if (structure.length > 1) {
+        const folderId = `${parentId}${structure[0]}`
+        if (!folderIds.has(folderId)) {
+          const folder: Folder = {
+            id: folderId,
+            title: structure[0],
+            type: 'folder'
+          }
+          folderIds.add(folderId)
+          folders.push(folder)
+        }
+      }
+    }
+  }
+
+  const pathFolder: Folder[] = []
+  parentId = params.currentFolderId
+  while (parentId && parentId !== '') {
+    pathFolder.unshift({
+      id: parentId,
+      title: parentId.substring(parentId.lastIndexOf(':') + 1),
+      type: 'folder'
+    })
+    parentId = parentId.substring(0, parentId.lastIndexOf(':'))
+  }
+
+  folders.sort((a, b) => (a.title ?? '').localeCompare(b.title ?? ''))
+  resources.sort((a, b) => (a.title ?? '').localeCompare(b.title ?? ''))
+  const listResults: (Folder | ResourceList[number])[] = [...folders, ...resources]
 
   let results = listResults
 
@@ -102,6 +142,6 @@ export const list = async ({ catalogConfig, params }: ListContext<WFSConfig, WFS
   return {
     count,
     results,
-    path: []
+    path: pathFolder
   }
 }

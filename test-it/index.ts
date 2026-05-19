@@ -36,14 +36,14 @@ describe('catalog-wfs', () => {
 
       assert.ok(res.count > 0, 'Should have FeatureTypes')
       assert.ok(res.results.length > 0)
-      assert.equal(res.results[0].type, 'resource')
+      assert.ok(res.results.length > 0, 'Should have results')
     })
 
     it('should list FeatureTypes with search query', async () => {
       const res = await catalogPlugin.list({
         catalogConfig,
         secrets,
-        params: { q: 'accident' }
+        params: { q: 'accident', currentFolderId: 'sdis29' }
       })
 
       assert.ok(res.results.length > 0, 'Should have results')
