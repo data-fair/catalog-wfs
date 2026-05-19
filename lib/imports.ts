@@ -1,4 +1,3 @@
-import { XMLParser } from 'fast-xml-parser'
 import fs from 'fs-extra'
 import pick from 'stream-json/filters/pick.js'
 import streamArray from 'stream-json/streamers/stream-array.js'
@@ -11,13 +10,7 @@ import type { CatalogPlugin, GetResourceContext, Resource } from '@data-fair/typ
 import type { WFSConfig } from '#types'
 
 import { convertGmlToGeoJson } from './utils/gml.ts'
-
-const parser = new XMLParser({
-  ignoreAttributes: false,
-  attributeNamePrefix: '',
-  removeNSPrefix: true,
-  parseTagValue: true
-})
+import { parser } from './utils/parser.ts'
 
 const DEFAULT_PAGE_SIZE = 5000
 
@@ -177,6 +170,8 @@ export const getResource = async ({ resourceId, tmpDir, log, catalogConfig }: Ge
   }
 
   await log.step('Récupération des données (GetFeature)')
+
+  // nbTotalResults = 10000
 
   // Build the GetFeature URL
   const getFeatureUrl = new URL(catalogConfig.url)

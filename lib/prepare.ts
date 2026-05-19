@@ -3,6 +3,9 @@ import { URL } from 'url'
 import type { WFSConfig } from '#types'
 import type { WFSCapabilities } from './capabilities.ts'
 import type { PrepareContext } from '@data-fair/types-catalogs'
+import axios from '@data-fair/lib-node/axios.js'
+
+import { parser } from './utils/parser.ts'
 
 export default async ({ catalogConfig, capabilities }: PrepareContext<WFSConfig, WFSCapabilities>) => {
   if (!catalogConfig?.url) {
@@ -43,6 +46,24 @@ export default async ({ catalogConfig, capabilities }: PrepareContext<WFSConfig,
 
   if (!catalogConfig.version) {
     catalogConfig.version = '2.0.0'
+  }
+
+  // Check connection
+  const capabilitiesUrl = new URL(catalogConfig.url)
+  capabilitiesUrl.searchParams.set('service', 'WFS')
+  capabilitiesUrl.searchParams.set('version', catalogConfig.version)
+  capabilitiesUrl.searchParams.set('request', 'GetCapabilities')
+
+  let capsParsed
+  try {
+    const capsResponse = await axios.get(capabilitiesUrl.toString())
+    capsParsed = parser.parse(capsResponse.data)
+  } catch (error: any) {
+    throw new Error(`Échec du test de connexion : ${error.message}`)
+  }
+
+  if (!capsParsed.WFS_Capabilities) {
+    throw new Error('Le serveur n\'est pas de type WFS.')
   }
 
   return {
