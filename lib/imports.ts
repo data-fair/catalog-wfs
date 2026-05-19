@@ -128,11 +128,17 @@ export const getResource = async ({ resourceId, tmpDir, log, catalogConfig }: Ge
   }
 
   // Get the number of results
+  let nbTotalResults: number | 'unknown' = 0
+
   const getNbResultsUrl = new URL(catalogConfig.url)
   getNbResultsUrl.searchParams.set('service', 'WFS')
   getNbResultsUrl.searchParams.set('version', version)
   getNbResultsUrl.searchParams.set('request', 'GetFeature')
-  getNbResultsUrl.searchParams.set('resultType', 'hits')
+  if (version !== '1.0.0') {
+    getNbResultsUrl.searchParams.set('resultType', 'hits')
+  } else {
+    nbTotalResults = 'unknown'
+  }
 
   if (version === '2.0.0') {
     getNbResultsUrl.searchParams.set('typeNames', featureTypeName)
@@ -140,15 +146,23 @@ export const getResource = async ({ resourceId, tmpDir, log, catalogConfig }: Ge
     getNbResultsUrl.searchParams.set('typeName', featureTypeName)
   }
 
-  let nbTotalResults: number | 'unknown' = 0
-  try {
-    const response = await axios.get(getNbResultsUrl.toString())
-    const parseResponse = parser.parse(response.data)
-    nbTotalResults = parseResponse.FeatureCollection.numberMatched === 'unknown'
-      ? 'unknown'
-      : parseResponse.FeatureCollection.numberMatched ?? 0
-  } catch (error: any) {
-    throw new Error(`Erreur lors de la récupération du nombre total de résultat: ${error.message}`)
+  if (nbTotalResults !== 'unknown') {
+    try {
+      const response = await axios.get(getNbResultsUrl.toString())
+      const parseResponse = parser.parse(response.data)
+      if (version === '2.0.0') {
+        nbTotalResults = parseResponse.FeatureCollection.numberMatched === 'unknown'
+          ? 'unknown'
+          : parseResponse.FeatureCollection.numberMatched ?? 0
+      } else {
+        nbTotalResults = parseResponse.FeatureCollection.numberOfFeatures === 'unknown'
+          ? 'unknown'
+          : parseResponse.FeatureCollection.numberOfFeatures ?? 0
+      }
+    } catch (error: any) {
+      await log.warning(`Erreur lors de la récupération du nombre total de résultat: ${error.message}. Le nombre de résultat est donc inconnu`)
+      nbTotalResults = 'unknown'
+    }
   }
 
   if (nbTotalResults !== 'unknown' && nbTotalResults <= 0) {
