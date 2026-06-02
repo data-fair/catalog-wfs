@@ -13,7 +13,7 @@
     "test-only": "npm run test-base -- --test-only test-it/*.ts",
     "test": "npm run test-base test-it/*.ts",
     "quality": "npm run lint && npm run build-types && npm run check-types && npm run test && npm audit --omit=dev --audit-level=critical",
-    "prepublishOnly": "npm run build-types"
+    "prepack": "npm run build-types"
   },
   "files": [
     "./lib/**",

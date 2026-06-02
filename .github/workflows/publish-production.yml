@@ -14,6 +14,12 @@ jobs:
     environment: production
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      # install deps (incl. devDeps) so the type builder is available when the
+      # publish action runs `npm pack` -> `prepack` -> build-types
+      - run: npm ci
       - uses: data-fair/registry/.github/actions/publish-plugin@v0.4.0
         with:
           registry-url: https://koumoul.com/registry
