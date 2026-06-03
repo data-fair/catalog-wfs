@@ -116,7 +116,24 @@ export const getResource = async ({ resourceId, tmpDir, log, catalogConfig }: Ge
       const metadataUrls = ft.MetadataURL || ft['ows:MetadataURL']
       if (metadataUrls) {
         const urls = Array.isArray(metadataUrls) ? metadataUrls : [metadataUrls]
-        origin = urls[0]?.href
+        for (const url of urls) {
+          try {
+            const response = await axios.head(url.href)
+            const contentType = (response.headers['content-type'] ?? '') as string
+            if (contentType.includes('text/html')) {
+              origin = url.href
+              break
+            }
+          } catch {}
+        }
+        // fallback if no HTML URL found
+        if (!origin) {
+          // For stability and to ensure that we always get the same URL in case of a fallback,
+          // we only keep URLs that do not contain any parameters (better chance of having HTML
+          // rather than XML) and we sort them in alphabetical order.
+          const noQuery = urls.filter(u => !u.href.includes('?')).sort((a, b) => a.href.localeCompare(b.href))
+          origin = noQuery[0]?.href ?? urls.sort((a, b) => a.href.localeCompare(b.href))[0]?.href
+        }
       }
 
       const keywordsNode = ft.Keywords || ft['ows:Keywords']
